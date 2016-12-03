@@ -42,7 +42,8 @@ func TestSoftAlign(t *testing.T) {
 		},
 	}
 	attentor.Randomize()
-	params := append([]*autofunc.Variable{}, decoder.Parameters()...)
+	startQuery := &autofunc.Variable{Vector: []float64{0, -1, 1}}
+	params := append([]*autofunc.Variable{startQuery}, decoder.Parameters()...)
 	params = append(params, encoder.Parameters()...)
 	params = append(params, attentor.Parameters()...)
 	inputs := [][]*autofunc.Variable{
@@ -50,6 +51,7 @@ func TestSoftAlign(t *testing.T) {
 		{{Vector: []float64{0.5}}, {Vector: []float64{-0.5}}},
 		{{Vector: []float64{0.5}}, {Vector: []float64{-1}}, {Vector: []float64{0.5}}},
 	}
+	params = append(params, startQuery)
 	for _, v := range inputs {
 		for _, u := range v {
 			params = append(params, u)
@@ -65,11 +67,11 @@ func TestSoftAlign(t *testing.T) {
 	checker := functest.SeqRFuncChecker{
 		F: &softAlignTestFunc{
 			SA: &SoftAlign{
-				Encoder:   &rnn.BlockSeqFunc{B: encoder},
-				Decoder:   decoder,
-				Attentor:  attentor,
-				BatchSize: 2,
-				QuerySize: 3,
+				Encoder:    &rnn.BlockSeqFunc{B: encoder},
+				Decoder:    decoder,
+				Attentor:   attentor,
+				BatchSize:  2,
+				StartQuery: startQuery,
 			},
 		},
 		Vars:  params,

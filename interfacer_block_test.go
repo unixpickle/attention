@@ -20,14 +20,15 @@ func TestInterfacerBlock(t *testing.T) {
 	}
 	resource.Randomize()
 	block := rnn.NewLSTM(2, 4)
+	startQuery := &autofunc.Variable{Vector: []float64{-1, 0, 1}}
 	sf := &rnn.BlockSeqFunc{
 		B: &interfacerBlock{
-			Resources: []autofunc.RFunc{resource, resource, resource},
-			Block:     block,
-			ResInSize: 3,
+			Resources:  []autofunc.RFunc{resource, resource, resource},
+			Block:      block,
+			StartQuery: startQuery,
 		},
 	}
-	params := append([]*autofunc.Variable{}, resource.Parameters()...)
+	params := append([]*autofunc.Variable{startQuery}, resource.Parameters()...)
 	params = append(params, block.Parameters()...)
 	inputs := [][]*autofunc.Variable{
 		{{Vector: []float64{1}}, {Vector: []float64{-1}}, {Vector: []float64{1}}},

@@ -47,19 +47,15 @@ type SoftAlign struct {
 	// The first QuerySize components of the block's output
 	// are fed directly to the Attentor in order to produce
 	// the next feature vector.
-	//
-	// The first timestep of the Decoder is used solely to
-	// produce a query for the next timestep; the output is
-	// discarded from the final result.
 	Decoder rnn.Block
 
 	// BatchSize is the batch size for applying the Attentor.
 	// If this is 0, inputs will not be batched.
 	BatchSize int
 
-	// QuerySize is the size of the vectors produced by the
-	// Decoder which serve as queries to the Attentor.
-	QuerySize int
+	// StartQuery is the initial attention query, used to
+	// focus for the first timestep.
+	StartQuery *autofunc.Variable
 }
 
 // Apply applies the RNN to some input sequences.
@@ -69,21 +65,16 @@ type SoftAlign struct {
 //
 // The decIn parameter specifies the additional inputs to
 // be fed to the decoder at each decoding timestep.
-// The decIn sequences should include the initial input to
-// be fed into the decoder for the first timestep, even
-// though the decoder's first output is thrown away.
-//
-// The returned sequences will be one timestep shorter than
-// the corresponding sequences in decIn, since the first
-// timestep is used only to generate an initial query.
+// The returned sequences will be the same lengths as the
+// ones in decIn.
 func (s *SoftAlign) Apply(in seqfunc.Result, decIn seqfunc.Result) seqfunc.Result {
 	encoded := s.Encoder.ApplySeqs(in)
 	n := len(encoded.OutputSeqs())
 	return seqfunc.Pool(encoded, func(encoded seqfunc.Result) seqfunc.Result {
 		tempBlock := interfacerBlock{
-			Resources: make([]autofunc.RFunc, n),
-			Block:     s.Decoder,
-			ResInSize: s.QuerySize,
+			Resources:  make([]autofunc.RFunc, n),
+			Block:      s.Decoder,
+			StartQuery: s.StartQuery,
 		}
 		attentor := s.Attentor.BatchLearner()
 		for i := range tempBlock.Resources {
@@ -95,8 +86,7 @@ func (s *SoftAlign) Apply(in seqfunc.Result, decIn seqfunc.Result) seqfunc.Resul
 			}
 		}
 		tempSeqFunc := rnn.BlockSeqFunc{B: &tempBlock}
-		outSeqs := tempSeqFunc.ApplySeqs(decIn)
-		return newSkipFirstResult(outSeqs)
+		return tempSeqFunc.ApplySeqs(decIn)
 	})
 }
 
@@ -107,9 +97,9 @@ func (s *SoftAlign) ApplyR(rv autofunc.RVector, in seqfunc.RResult,
 	n := len(encoded.OutputSeqs())
 	return seqfunc.PoolR(encoded, func(encoded seqfunc.RResult) seqfunc.RResult {
 		tempBlock := interfacerBlock{
-			Resources: make([]autofunc.RFunc, n),
-			Block:     s.Decoder,
-			ResInSize: s.QuerySize,
+			Resources:  make([]autofunc.RFunc, n),
+			Block:      s.Decoder,
+			StartQuery: s.StartQuery,
 		}
 		attentor := s.Attentor.BatchLearner()
 		for i := range tempBlock.Resources {
@@ -121,16 +111,12 @@ func (s *SoftAlign) ApplyR(rv autofunc.RVector, in seqfunc.RResult,
 			}
 		}
 		tempSeqFunc := rnn.BlockSeqFunc{B: &tempBlock}
-		outSeqs := tempSeqFunc.ApplySeqsR(rv, decIn)
-		return newSkipFirstRResult(outSeqs)
+		return tempSeqFunc.ApplySeqsR(rv, decIn)
 	})
 }
 
 // TimeStepper generates a TimeStepper for the input
 // sequence.
-// The first timestep's output should not be used, since
-// the purpose of the first timestep is to generate an
-// initial attention query.
 func (s *SoftAlign) Generate(in []linalg.Vector) TimeStepper {
 	inSeq := seqfunc.ConstResult([][]linalg.Vector{in})
 	encoded := s.Encoder.ApplySeqs(inSeq)
@@ -144,8 +130,8 @@ func (s *SoftAlign) Generate(in []linalg.Vector) TimeStepper {
 				Lane:      0,
 			},
 		},
-		Block:     s.Decoder,
-		ResInSize: s.QuerySize,
+		Block:      s.Decoder,
+		StartQuery: s.StartQuery,
 	}
 	return &rnn.Runner{Block: &tempBlock}
 }
@@ -216,71 +202,4 @@ func (f *focusFunc) ApplyR(rv autofunc.RVector, query autofunc.RResult) autofunc
 		}, enc, probs)
 		return seqfunc.AddAllR(masked)
 	})
-}
-
-type skipFirstResult struct {
-	Res seqfunc.Result
-
-	Skipped [][]linalg.Vector
-}
-
-func newSkipFirstResult(r seqfunc.Result) *skipFirstResult {
-	outs := r.OutputSeqs()
-	s := make([][]linalg.Vector, len(outs))
-	for i, x := range outs {
-		s[i] = x[1:]
-	}
-	return &skipFirstResult{Res: r, Skipped: s}
-}
-
-func (s *skipFirstResult) OutputSeqs() [][]linalg.Vector {
-	return s.Skipped
-}
-
-func (s *skipFirstResult) PropagateGradient(u [][]linalg.Vector, g autofunc.Gradient) {
-	newU := make([][]linalg.Vector, len(u))
-	for i, x := range u {
-		zeroVec := make(linalg.Vector, len(s.Res.OutputSeqs()[i][0]))
-		newU[i] = append([]linalg.Vector{zeroVec}, x...)
-	}
-	s.Res.PropagateGradient(newU, g)
-}
-
-type skipFirstRResult struct {
-	Res seqfunc.RResult
-
-	Skipped  [][]linalg.Vector
-	RSkipped [][]linalg.Vector
-}
-
-func newSkipFirstRResult(r seqfunc.RResult) *skipFirstRResult {
-	outs := r.OutputSeqs()
-	outsR := r.ROutputSeqs()
-	s := make([][]linalg.Vector, len(outs))
-	sR := make([][]linalg.Vector, len(outs))
-	for i, x := range outs {
-		s[i] = x[1:]
-		sR[i] = outsR[i][1:]
-	}
-	return &skipFirstRResult{Res: r, Skipped: s, RSkipped: sR}
-}
-
-func (s *skipFirstRResult) OutputSeqs() [][]linalg.Vector {
-	return s.Skipped
-}
-
-func (s *skipFirstRResult) ROutputSeqs() [][]linalg.Vector {
-	return s.RSkipped
-}
-
-func (s *skipFirstRResult) PropagateRGradient(u, uR [][]linalg.Vector, rg autofunc.RGradient,
-	g autofunc.Gradient) {
-	newU := make([][]linalg.Vector, len(u))
-	newUR := make([][]linalg.Vector, len(u))
-	for i, x := range u {
-		zeroVec := make(linalg.Vector, len(s.Res.OutputSeqs()[i][0]))
-		newU[i] = append([]linalg.Vector{zeroVec}, x...)
-		newUR[i] = append([]linalg.Vector{zeroVec}, uR[i]...)
-	}
-	s.Res.PropagateRGradient(newU, newUR, rg, g)
 }

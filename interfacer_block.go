@@ -49,8 +49,8 @@ type interfacerBlock struct {
 	// Block is the wrapped block.
 	Block rnn.Block
 
-	// ResInSize is the size of the resources' inputs.
-	ResInSize int
+	// StartQuery is the initial query for the resource.
+	StartQuery *autofunc.Variable
 }
 
 // StartState returns the start state.
@@ -63,14 +63,16 @@ func (i *interfacerBlock) StartRState(rv autofunc.RVector) rnn.RState {
 	return ibInitRState{Inner: i.Block.StartRState(rv)}
 }
 
-// PropagateStart propagates through the inner block's
-// start state.
+// PropagateStart propagates through the start state,
+// including the start query.
 func (i *interfacerBlock) PropagateStart(s []rnn.State, u []rnn.StateGrad, g autofunc.Gradient) {
 	innerStates := make([]rnn.State, len(s))
 	innerUpstream := make([]rnn.StateGrad, len(s))
 	for j, x := range s {
+		sg := u[j].(ibStateGrad)
 		innerStates[j] = x.(ibInitState).Inner
-		innerUpstream[j] = u[j].(ibStateGrad).Inner
+		innerUpstream[j] = sg.Inner
+		i.StartQuery.PropagateGradient(sg.UpstreamQuery, g)
 	}
 	i.Block.PropagateStart(innerStates, innerUpstream, g)
 }
@@ -82,8 +84,11 @@ func (i *interfacerBlock) PropagateStartR(s []rnn.RState, u []rnn.RStateGrad, rg
 	innerStates := make([]rnn.RState, len(s))
 	innerUpstream := make([]rnn.RStateGrad, len(s))
 	for j, x := range s {
+		sg := u[j].(ibRStateGrad)
 		innerStates[j] = x.(ibInitRState).Inner
-		innerUpstream[j] = u[j].(ibRStateGrad).Inner
+		innerUpstream[j] = sg.Inner
+		rv := &autofunc.RVariable{Variable: i.StartQuery}
+		rv.PropagateRGradient(sg.UpstreamQuery, sg.RUpstreamQuery, rg, g)
 	}
 	i.Block.PropagateStartR(innerStates, innerUpstream, rg, g)
 }
@@ -103,7 +108,7 @@ func (i *interfacerBlock) ApplyBlock(s []rnn.State, in []autofunc.Result) rnn.Bl
 			s[j] = ibState{
 				Inner:    oldS[j].(ibInitState).Inner,
 				Resource: i.Resources[j],
-				Query:    make(linalg.Vector, i.ResInSize),
+				Query:    i.StartQuery.Vector,
 			}
 		}
 	}
@@ -122,16 +127,16 @@ func (i *interfacerBlock) ApplyBlock(s []rnn.State, in []autofunc.Result) rnn.Bl
 	outStates := make([]rnn.State, n)
 	outVecs := make([]linalg.Vector, n)
 	for j, v := range blockRes.Outputs() {
-		outVecs[j] = v[i.ResInSize:]
+		outVecs[j] = v[i.querySize():]
 		outStates[j] = ibState{
 			Inner:    blockRes.States()[j],
 			Resource: s[j].(ibState).Resource,
-			Query:    v[:i.ResInSize],
+			Query:    v[:i.querySize()],
 		}
 	}
 
 	return &ibResult{
-		ReqSize:   i.ResInSize,
+		ReqSize:   i.querySize(),
 		Result:    blockRes,
 		QueryPool: pool,
 		OutStates: outStates,
@@ -151,12 +156,13 @@ func (i *interfacerBlock) ApplyBlockR(rv autofunc.RVector, s []rnn.RState,
 		}
 		oldS := s
 		s = make([]rnn.RState, len(s))
+		qv := autofunc.NewRVariable(i.StartQuery, rv)
 		for j := range s {
 			s[j] = ibRState{
 				Inner:    oldS[j].(ibInitRState).Inner,
 				Resource: i.Resources[j],
-				Query:    make(linalg.Vector, i.ResInSize),
-				RQuery:   make(linalg.Vector, i.ResInSize),
+				Query:    qv.Output(),
+				RQuery:   qv.ROutput(),
 			}
 		}
 	}
@@ -182,24 +188,28 @@ func (i *interfacerBlock) ApplyBlockR(rv autofunc.RVector, s []rnn.RState,
 	rOuts := blockRes.ROutputs()
 	for j, v := range blockRes.Outputs() {
 		rv := rOuts[j]
-		outVecs[j] = v[i.ResInSize:]
-		outVecsR[j] = rv[i.ResInSize:]
+		outVecs[j] = v[i.querySize():]
+		outVecsR[j] = rv[i.querySize():]
 		outStates[j] = ibRState{
 			Inner:    blockRes.RStates()[j],
 			Resource: s[j].(ibRState).Resource,
-			Query:    v[:i.ResInSize],
-			RQuery:   rv[:i.ResInSize],
+			Query:    v[:i.querySize()],
+			RQuery:   rv[:i.querySize()],
 		}
 	}
 
 	return &ibRResult{
-		ReqSize:   i.ResInSize,
+		ReqSize:   i.querySize(),
 		Result:    blockRes,
 		QueryPool: pool,
 		OutStates: outStates,
 		OutVecs:   outVecs,
 		ROutVecs:  outVecsR,
 	}
+}
+
+func (i *interfacerBlock) querySize() int {
+	return len(i.StartQuery.Vector)
 }
 
 type ibResult struct {
