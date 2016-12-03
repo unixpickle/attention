@@ -8,6 +8,13 @@ import (
 	"github.com/unixpickle/weakai/rnn"
 )
 
+// A TimeStepper implements some sort of model which can
+// produce a sequence of vectors, one at a time, given the
+// next input.
+type TimeStepper interface {
+	StepTime(in linalg.Vector) linalg.Vector
+}
+
 // SoftAlign uses an attention mechanism similar to the
 // one described in https://arxiv.org/abs/1409.0473.
 // In this mechanism, an encoder generates a sequence of
@@ -55,14 +62,26 @@ type SoftAlign struct {
 	QuerySize int
 }
 
-// Apply applies the RNN to some input sequences, giving
-// output sequences of the specified lengths (since the
-// output sequences could theoretically be of any length).
-func (s *SoftAlign) Apply(in seqfunc.Result, outLens []int) seqfunc.Result {
+// Apply applies the RNN to some input sequences.
+//
+// The in parameter specifies the inputs to be fed to the
+// encoder.
+//
+// The decIn parameter specifies the additional inputs to
+// be fed to the decoder at each decoding timestep.
+// The decIn sequences should include the initial input to
+// be fed into the decoder for the first timestep, even
+// though the decoder's first output is thrown away.
+//
+// The returned sequences will be one timestep shorter than
+// the corresponding sequences in decIn, since the first
+// timestep is used only to generate an initial query.
+func (s *SoftAlign) Apply(in seqfunc.Result, decIn seqfunc.Result) seqfunc.Result {
 	encoded := s.Encoder.ApplySeqs(in)
+	n := len(encoded.OutputSeqs())
 	return seqfunc.Pool(encoded, func(encoded seqfunc.Result) seqfunc.Result {
 		tempBlock := interfacerBlock{
-			Resources: make([]autofunc.RFunc, len(outLens)),
+			Resources: make([]autofunc.RFunc, n),
 			Block:     s.Decoder,
 			ResInSize: s.QuerySize,
 		}
@@ -75,23 +94,20 @@ func (s *SoftAlign) Apply(in seqfunc.Result, outLens []int) seqfunc.Result {
 				Lane:      i,
 			}
 		}
-		emptySeqs := make([][]linalg.Vector, len(outLens))
-		for i, x := range outLens {
-			emptySeqs[i] = make([]linalg.Vector, x+1)
-		}
-		inSeqs := seqfunc.ConstResult(emptySeqs)
 		tempSeqFunc := rnn.BlockSeqFunc{B: &tempBlock}
-		outSeqs := tempSeqFunc.ApplySeqs(inSeqs)
+		outSeqs := tempSeqFunc.ApplySeqs(decIn)
 		return newSkipFirstResult(outSeqs)
 	})
 }
 
 // ApplyR is like Apply, but with R-operator support.
-func (s *SoftAlign) ApplyR(rv autofunc.RVector, in seqfunc.RResult, outLens []int) seqfunc.RResult {
+func (s *SoftAlign) ApplyR(rv autofunc.RVector, in seqfunc.RResult,
+	decIn seqfunc.RResult) seqfunc.RResult {
 	encoded := s.Encoder.ApplySeqsR(rv, in)
+	n := len(encoded.OutputSeqs())
 	return seqfunc.PoolR(encoded, func(encoded seqfunc.RResult) seqfunc.RResult {
 		tempBlock := interfacerBlock{
-			Resources: make([]autofunc.RFunc, len(outLens)),
+			Resources: make([]autofunc.RFunc, n),
 			Block:     s.Decoder,
 			ResInSize: s.QuerySize,
 		}
@@ -104,57 +120,34 @@ func (s *SoftAlign) ApplyR(rv autofunc.RVector, in seqfunc.RResult, outLens []in
 				Lane:      i,
 			}
 		}
-		emptySeqs := make([][]linalg.Vector, len(outLens))
-		for i, x := range outLens {
-			emptySeqs[i] = make([]linalg.Vector, x+1)
-		}
-		inSeqs := seqfunc.ConstRResult(emptySeqs)
 		tempSeqFunc := rnn.BlockSeqFunc{B: &tempBlock}
-		outSeqs := tempSeqFunc.ApplySeqsR(rv, inSeqs)
+		outSeqs := tempSeqFunc.ApplySeqsR(rv, decIn)
 		return newSkipFirstRResult(outSeqs)
 	})
 }
 
-// Generate applies the RNN to an input sequence, giving
-// a stream of output vectors which goes on until the stop
-// channel is closed.
-func (s *SoftAlign) Generate(in []linalg.Vector, stop <-chan struct{}) <-chan linalg.Vector {
-	res := make(chan linalg.Vector)
-	go func() {
-		defer close(res)
-		inSeq := seqfunc.ConstResult([][]linalg.Vector{in})
-		encoded := s.Encoder.ApplySeqs(inSeq)
-		attentor := s.Attentor.BatchLearner()
-		tempBlock := interfacerBlock{
-			Resources: []autofunc.RFunc{
-				&focusFunc{
-					Encoded:   encoded,
-					Attentor:  attentor,
-					BatchSize: s.BatchSize,
-					Lane:      0,
-				},
+// TimeStepper generates a TimeStepper for the input
+// sequence.
+// The first timestep's output should not be used, since
+// the purpose of the first timestep is to generate an
+// initial attention query.
+func (s *SoftAlign) Generate(in []linalg.Vector) TimeStepper {
+	inSeq := seqfunc.ConstResult([][]linalg.Vector{in})
+	encoded := s.Encoder.ApplySeqs(inSeq)
+	attentor := s.Attentor.BatchLearner()
+	tempBlock := interfacerBlock{
+		Resources: []autofunc.RFunc{
+			&focusFunc{
+				Encoded:   encoded,
+				Attentor:  attentor,
+				BatchSize: s.BatchSize,
+				Lane:      0,
 			},
-			Block:     s.Decoder,
-			ResInSize: s.QuerySize,
-		}
-		state := tempBlock.StartState()
-		zeroIn := &autofunc.Variable{}
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-			out := tempBlock.ApplyBlock([]rnn.State{state}, []autofunc.Result{zeroIn})
-			select {
-			case res <- out.Outputs()[0]:
-			case <-stop:
-				return
-			}
-			state = out.States()[0]
-		}
-	}()
-	return res
+		},
+		Block:     s.Decoder,
+		ResInSize: s.QuerySize,
+	}
+	return &rnn.Runner{Block: &tempBlock}
 }
 
 type focusFunc struct {

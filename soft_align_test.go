@@ -17,15 +17,23 @@ type softAlignTestFunc struct {
 }
 
 func (s softAlignTestFunc) ApplySeqs(in seqfunc.Result) seqfunc.Result {
-	return s.SA.Apply(in, []int{4, 2, 1})
+	return s.SA.Apply(in, seqfunc.ConstResult(s.decInVecs()))
 }
 
 func (s softAlignTestFunc) ApplySeqsR(rv autofunc.RVector, in seqfunc.RResult) seqfunc.RResult {
-	return s.SA.ApplyR(rv, in, []int{4, 2, 1})
+	return s.SA.ApplyR(rv, in, seqfunc.ConstRResult(s.decInVecs()))
+}
+
+func (s softAlignTestFunc) decInVecs() [][]linalg.Vector {
+	return [][]linalg.Vector{
+		{{1}, {-1}, {0}, {0}, {0.5}},
+		{{-1}, {-0.7}, {0.5}},
+		{{0.3}, {0.2}},
+	}
 }
 
 func TestSoftAlign(t *testing.T) {
-	decoder := rnn.NewLSTM(2, 4)
+	decoder := rnn.NewLSTM(3, 4)
 	encoder := rnn.NewLSTM(1, 2)
 	attentor := neuralnet.Network{
 		&neuralnet.DenseLayer{
