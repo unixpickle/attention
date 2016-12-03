@@ -117,7 +117,7 @@ func (s *SoftAlign) ApplyR(rv autofunc.RVector, in seqfunc.RResult,
 
 // TimeStepper generates a TimeStepper for the input
 // sequence.
-func (s *SoftAlign) Generate(in []linalg.Vector) TimeStepper {
+func (s *SoftAlign) TimeStepper(in []linalg.Vector) TimeStepper {
 	inSeq := seqfunc.ConstResult([][]linalg.Vector{in})
 	encoded := s.Encoder.ApplySeqs(inSeq)
 	attentor := s.Attentor.BatchLearner()
