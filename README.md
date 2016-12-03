@@ -6,4 +6,4 @@ In this repository, I will implement neural attention mechanisms as I need them.
 
 If I add an algorithm, I will list it here.
 
- * [Soft-alignments](https://arxiv.org/abs/1409.0473) - attention traditionally used for machine translation.
+ * [Soft alignments](https://arxiv.org/abs/1409.0473) - attention traditionally used for machine translation.
