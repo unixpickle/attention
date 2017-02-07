@@ -3,6 +3,7 @@ package attention
 import (
 	"github.com/unixpickle/anydiff"
 	"github.com/unixpickle/anydiff/anyseq"
+	"github.com/unixpickle/anynet"
 	"github.com/unixpickle/anynet/anyrnn"
 	"github.com/unixpickle/serializer"
 )
@@ -88,6 +89,18 @@ func (s *SoftAlign) Block(in anyseq.Seq) anyrnn.Block {
 		InitQuery:  s.InitQuery,
 		ToInternal: s.InCombiner,
 	}
+}
+
+// Parameters collects the parameters of every component
+// of the SoftAlign except for s.Encoder.
+func (s *SoftAlign) Parameters() []*anydiff.Var {
+	res := []*anydiff.Var{s.InitQuery}
+	for _, x := range []interface{}{s.Attentor, s.Decoder, s.InCombiner} {
+		if p, ok := x.(anynet.Parameterizer); ok {
+			res = append(res, p.Parameters()...)
+		}
+	}
+	return res
 }
 
 // SerializerType returns the unique ID used to serialize
