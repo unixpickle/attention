@@ -3,6 +3,7 @@ package attention
 import (
 	"github.com/unixpickle/anydiff"
 	"github.com/unixpickle/anynet"
+	"github.com/unixpickle/anyvec"
 	"github.com/unixpickle/essentials"
 	"github.com/unixpickle/serializer"
 )
@@ -34,6 +35,22 @@ func DeserializeCombiner(d []byte) (*Combiner, error) {
 	return &c, nil
 }
 
+// NewCombiner creates a simple feed-forward combiner
+// network with the given input sizes, hidden size, and
+// output count.
+func NewCombiner(c anyvec.Creator, in1, in2, hidden, out int) *Combiner {
+	return &Combiner{
+		InTrans: [2]anynet.Layer{
+			anynet.NewFC(c, in1, hidden),
+			anynet.NewFC(c, in2, hidden),
+		},
+		OutTrans: anynet.Net{
+			anynet.Tanh,
+			anynet.NewFC(c, hidden, out),
+		},
+	}
+}
+
 // Apply applies the Combiner.
 func (c *Combiner) Apply(in1, in2 anydiff.Res, n int) anydiff.Res {
 	return c.OutTrans.Apply(anydiff.Add(
@@ -42,7 +59,8 @@ func (c *Combiner) Apply(in1, in2 anydiff.Res, n int) anydiff.Res {
 	), n)
 }
 
-// Parameters returns the network's parameters.
+// Parameters returns the parameters of the Combiner's
+// sub-components.
 func (c *Combiner) Parameters() []*anydiff.Var {
 	var res []*anydiff.Var
 	for _, l := range []anynet.Layer{c.InTrans[0], c.InTrans[1], c.OutTrans} {
