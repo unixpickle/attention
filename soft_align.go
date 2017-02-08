@@ -5,6 +5,7 @@ import (
 	"github.com/unixpickle/anydiff/anyseq"
 	"github.com/unixpickle/anynet"
 	"github.com/unixpickle/anynet/anyrnn"
+	"github.com/unixpickle/anyvec/anyvecsave"
 	"github.com/unixpickle/serializer"
 )
 
@@ -56,11 +57,13 @@ type SoftAlign struct {
 // DeserializeSoftAlign deserializes a SoftAlign.
 func DeserializeSoftAlign(d []byte) (*SoftAlign, error) {
 	var res SoftAlign
+	var queryVec *anyvecsave.S
 	err := serializer.DeserializeAny(d, &res.Attentor, &res.Decoder, &res.InCombiner,
-		&res.InitQuery)
+		&queryVec)
 	if err != nil {
 		return nil, err
 	}
+	res.InitQuery = &anydiff.Var{Vector: queryVec.Vector}
 	return &res, nil
 }
 
@@ -115,6 +118,6 @@ func (s *SoftAlign) Serialize() ([]byte, error) {
 		s.Attentor,
 		s.Decoder,
 		s.InCombiner,
-		s.InitQuery,
+		&anyvecsave.S{Vector: s.InitQuery.Vector},
 	)
 }
