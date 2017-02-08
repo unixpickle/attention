@@ -95,7 +95,7 @@ func (s *softBlock) applyQueries(pres anyrnn.PresentMap, query anydiff.Res) anyd
 					}
 					return anydiff.ScaleRows(mat, v[0]).Data
 				}, exps, reducedSeqs)
-				maskedSum := s.sums(masked)
+				maskedSum := anyseq.SumEach(masked)
 				n := masked.Output()[0].NumPresent()
 				sumMat := &anydiff.Matrix{
 					Data: maskedSum,
@@ -159,26 +159,11 @@ func (s *softBlock) exponentiate(rawOuts anyseq.Seq, maxes anyvec.Vector) anyseq
 }
 
 func (s *softBlock) normalizers(exps anyseq.Seq) anydiff.Res {
-	sum := s.sums(exps)
+	sum := anyseq.SumEach(exps)
 	c := sum.Output().Creator()
 	ones := c.MakeVector(sum.Output().Len())
 	ones.AddScaler(c.MakeNumeric(1))
 	return anydiff.Div(anydiff.NewConst(ones), sum)
-}
-
-func (s *softBlock) sums(seqs anyseq.Seq) anydiff.Res {
-	sumBlock := &anyrnn.FuncBlock{
-		Func: func(in, state anydiff.Res, n int) (out, newState anydiff.Res) {
-			return nil, anydiff.Add(in, state)
-		},
-		MakeStart: func(n int) anydiff.Res {
-			firstOut := seqs.Output()[0]
-			c := firstOut.Packed.Creator()
-			inSize := firstOut.Packed.Len() / firstOut.NumPresent()
-			return anydiff.NewConst(c.MakeVector(n * inSize))
-		},
-	}
-	return anyseq.Tail(anyrnn.Map(seqs, sumBlock))
 }
 
 type softBlockState struct {
