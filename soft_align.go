@@ -21,13 +21,13 @@ func init() {
 // focusing on different parts of the encoded input
 // sequence.
 //
+// Encoding itself is done externally to SoftAlign.
+// SoftAlign takes pre-encoded sequences as input.
+//
 // At every timestep, the decoder block produces queries
 // which are used to focus on parts of the encoded
 // sequence for the next timestep.
 type SoftAlign struct {
-	// Encoder encodes the input sequences.
-	Encoder func(in anyseq.Seq) anyseq.Seq
-
 	// Attentor takes queries and encoded vectors and
 	// produces weights (in the log domain) for the
 	// importance of that encoded vector for the given
@@ -54,8 +54,6 @@ type SoftAlign struct {
 }
 
 // DeserializeSoftAlign deserializes a SoftAlign.
-//
-// The resulting instance will have a nil Encoder field.
 func DeserializeSoftAlign(d []byte) (*SoftAlign, error) {
 	var res SoftAlign
 	err := serializer.DeserializeAny(d, &res.Attentor, &res.Decoder, &res.InCombiner,
@@ -70,21 +68,23 @@ func DeserializeSoftAlign(d []byte) (*SoftAlign, error) {
 // conjunction with the batch of inputs.
 //
 // The resultant block must only be used with a starting
-// batch size equal to the batch size of in.
+// batch size equal to the batch size of enc.
 //
 // There must be at least one input sequence, and all
 // input sequences must be non-empty.
-func (s *SoftAlign) Block(in anyseq.Seq) anyrnn.Block {
-	if len(in.Output()) == 0 || in.Output()[0].NumPresent() == 0 {
+//
+// It is recommended that you pool enc before passing it
+// to a SoftAlign.
+func (s *SoftAlign) Block(enc anyseq.Seq) anyrnn.Block {
+	if len(enc.Output()) == 0 || enc.Output()[0].NumPresent() == 0 {
 		panic("cannot have no input sequences")
 	}
-	if len(in.Output()[0].Present) != in.Output()[0].NumPresent() {
+	if len(enc.Output()[0].Present) != enc.Output()[0].NumPresent() {
 		panic("cannot have empty input sequence")
 	}
-	encoded := s.Encoder(in)
 	return &softBlock{
 		Internal:   s.Decoder,
-		Encoded:    encoded,
+		Encoded:    enc,
 		Attentor:   s.Attentor,
 		InitQuery:  s.InitQuery,
 		ToInternal: s.InCombiner,
@@ -110,8 +110,6 @@ func (s *SoftAlign) SerializerType() string {
 }
 
 // Serialize serializes the SoftAlign.
-//
-// s.Encoder is ignored since it cannot be serialized.
 func (s *SoftAlign) Serialize() ([]byte, error) {
 	return serializer.SerializeAny(
 		s.Attentor,
