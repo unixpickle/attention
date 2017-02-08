@@ -113,8 +113,8 @@ func (s *softBlock) rawQueryOuts(reduced anyseq.Seq, pres anyrnn.PresentMap,
 	transQuery anydiff.Res) anyseq.Seq {
 	queryBlock := &anyrnn.FuncBlock{
 		Func: func(in, state anydiff.Res, n int) (out, newState anydiff.Res) {
-			x := anydiff.Add(transQuery, s.Attentor.In2.Apply(in, n))
-			return nil, s.Attentor.Out.Apply(x, n)
+			x := anydiff.Add(state, s.Attentor.In2.Apply(in, n))
+			return s.Attentor.Out.Apply(x, n), state
 		},
 		MakeStart: func(n int) anydiff.Res {
 			if n != pres.NumPresent() {
