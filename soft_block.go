@@ -83,28 +83,16 @@ func (s *softBlock) applyQueries(pres anyrnn.PresentMap, query anydiff.Res) anyd
 		appliedQuery := s.Attentor.In1.Apply(query, pres.NumPresent())
 		return anydiff.Pool(appliedQuery, func(appliedQuery anydiff.Res) anydiff.Res {
 			rawOuts := s.rawQueryOuts(reducedSeqs, pres, appliedQuery)
-			exps := anyseq.Pool(rawOuts, func(rawOuts anyseq.Seq) anyseq.Seq {
-				maxes := s.maxPerSeq(rawOuts)
-				return s.exponentiate(rawOuts, maxes)
-			})
-			return anyseq.PoolToVec(exps, func(exps anyseq.Seq) anydiff.Res {
-				masked := anyseq.MapN(func(n int, v ...anydiff.Res) anydiff.Res {
-					mat := &anydiff.Matrix{
-						Data: v[1],
-						Rows: n,
-						Cols: v[1].Output().Len() / n,
-					}
-					return anydiff.ScaleRows(mat, v[0]).Data
-				}, exps, reducedSeqs)
-				maskedSum := anyseq.SumEach(masked)
-				n := masked.Output()[0].NumPresent()
-				sumMat := &anydiff.Matrix{
-					Data: maskedSum,
+			mask := seqSoftmax(rawOuts)
+			masked := anyseq.MapN(func(n int, v ...anydiff.Res) anydiff.Res {
+				mat := &anydiff.Matrix{
+					Data: v[1],
 					Rows: n,
-					Cols: maskedSum.Output().Len() / n,
+					Cols: v[1].Output().Len() / n,
 				}
-				return anydiff.ScaleRows(sumMat, s.normalizers(exps)).Data
-			})
+				return anydiff.ScaleRows(mat, v[0]).Data
+			}, mask, reducedSeqs)
+			return anyseq.SumEach(masked)
 		})
 	})
 }
@@ -124,47 +112,6 @@ func (s *softBlock) rawQueryOuts(reduced anyseq.Seq, pres anyrnn.PresentMap,
 		},
 	}
 	return anyrnn.Map(reduced, queryBlock)
-}
-
-func (s *softBlock) maxPerSeq(rawOuts anyseq.Seq) anyvec.Vector {
-	maxBlock := &anyrnn.FuncBlock{
-		Func: func(in, state anydiff.Res, n int) (out, newState anydiff.Res) {
-			elemMax := in.Output().Copy()
-			anyvec.ElemMax(elemMax, state.Output())
-			return nil, anydiff.NewConst(elemMax)
-		},
-		MakeStart: func(n int) anydiff.Res {
-			c := rawOuts.Output()[0].Packed.Creator()
-			outs := c.MakeVector(n)
-			// TODO: look into using -inf here.
-			outs.AddScaler(c.MakeNumeric(-10000))
-			return anydiff.NewConst(outs)
-		},
-	}
-	return anyseq.Tail(anyrnn.Map(rawOuts, maxBlock)).Output()
-}
-
-func (s *softBlock) exponentiate(rawOuts anyseq.Seq, maxes anyvec.Vector) anyseq.Seq {
-	expBlock := &anyrnn.FuncBlock{
-		Func: func(in, state anydiff.Res, n int) (out, newState anydiff.Res) {
-			return nil, anydiff.Exp(anydiff.Sub(in, state))
-		},
-		MakeStart: func(n int) anydiff.Res {
-			if n != maxes.Len() {
-				panic("bad state size")
-			}
-			return anydiff.NewConst(maxes)
-		},
-	}
-	return anyrnn.Map(rawOuts, expBlock)
-}
-
-func (s *softBlock) normalizers(exps anyseq.Seq) anydiff.Res {
-	sum := anyseq.SumEach(exps)
-	c := sum.Output().Creator()
-	ones := c.MakeVector(sum.Output().Len())
-	ones.AddScaler(c.MakeNumeric(1))
-	return anydiff.Div(anydiff.NewConst(ones), sum)
 }
 
 type softBlockState struct {
