@@ -78,7 +78,7 @@ func (s *softBlock) Step(absState anyrnn.State, in anyvec.Vector) anyrnn.Res {
 }
 
 func (s *softBlock) applyQueries(pres anyrnn.PresentMap, query anydiff.Res) anydiff.Res {
-	reducedSeqs := anyseq.Reduce(s.Encoded, pres)
+	reducedSeqs := anyseq.Prune(anyseq.Reduce(s.Encoded, pres))
 	return anyseq.PoolToVec(reducedSeqs, func(reducedSeqs anyseq.Seq) anydiff.Res {
 		appliedQuery := s.Attentor.In1.Apply(query, pres.NumPresent())
 		return anydiff.Pool(appliedQuery, func(appliedQuery anydiff.Res) anydiff.Res {
