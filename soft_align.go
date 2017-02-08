@@ -35,7 +35,7 @@ type SoftAlign struct {
 	//
 	// The first input is the query; the second input is the
 	// encoded vector.
-	Attentor *Combiner
+	Attentor *anynet.AddMixer
 
 	// Decoder is the block which takes values from
 	// InCombiner and produces queries.
@@ -47,7 +47,7 @@ type SoftAlign struct {
 	//
 	// The first input is the query result; the second input
 	// is the block input.
-	InCombiner *Combiner
+	InCombiner anynet.Mixer
 
 	// InitQuery is query for the first decoding timestep.
 	InitQuery *anydiff.Var

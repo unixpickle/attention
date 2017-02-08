@@ -3,6 +3,7 @@ package attention
 import (
 	"github.com/unixpickle/anydiff"
 	"github.com/unixpickle/anydiff/anyseq"
+	"github.com/unixpickle/anynet"
 	"github.com/unixpickle/anynet/anyrnn"
 	"github.com/unixpickle/anyvec"
 )
@@ -21,7 +22,7 @@ type softBlock struct {
 	// Attentor is used to satisfy queries.
 	// The first input is for queries, and the second is
 	// for the given encoded vector.
-	Attentor *Combiner
+	Attentor *anynet.AddMixer
 
 	// InitQuery is the initial query.
 	InitQuery *anydiff.Var
@@ -29,7 +30,7 @@ type softBlock struct {
 	// ToInternal produces an input for Internal given the
 	// result of the previous timestep's queries and the
 	// timestep's inputs (in that order).
-	ToInternal *Combiner
+	ToInternal anynet.Mixer
 }
 
 func (s *softBlock) Start(n int) anyrnn.State {
@@ -54,7 +55,7 @@ func (s *softBlock) Step(absState anyrnn.State, in anyvec.Vector) anyrnn.Res {
 	inPool := anydiff.NewVar(in)
 	queryPool := anydiff.NewVar(state.Query.Vector)
 	queryRes := s.applyQueries(state.Present(), queryPool)
-	blockIn := s.ToInternal.Apply(queryRes, inPool, state.Present().NumPresent())
+	blockIn := s.ToInternal.Mix(queryRes, inPool, state.Present().NumPresent())
 	blockRes := s.Internal.Step(state.Internal, blockIn.Output())
 	newState := &softBlockState{
 		Internal: blockRes.State(),
@@ -79,7 +80,7 @@ func (s *softBlock) Step(absState anyrnn.State, in anyvec.Vector) anyrnn.Res {
 func (s *softBlock) applyQueries(pres anyrnn.PresentMap, query anydiff.Res) anydiff.Res {
 	reducedSeqs := anyseq.Reduce(s.Encoded, pres)
 	return anyseq.PoolToVec(reducedSeqs, func(reducedSeqs anyseq.Seq) anydiff.Res {
-		appliedQuery := s.Attentor.InTrans[0].Apply(query, pres.NumPresent())
+		appliedQuery := s.Attentor.In1.Apply(query, pres.NumPresent())
 		return anydiff.Pool(appliedQuery, func(appliedQuery anydiff.Res) anydiff.Res {
 			rawOuts := s.rawQueryOuts(reducedSeqs, pres, appliedQuery)
 			exps := anyseq.Pool(rawOuts, func(rawOuts anyseq.Seq) anyseq.Seq {
@@ -112,8 +113,8 @@ func (s *softBlock) rawQueryOuts(reduced anyseq.Seq, pres anyrnn.PresentMap,
 	transQuery anydiff.Res) anyseq.Seq {
 	queryBlock := &anyrnn.FuncBlock{
 		Func: func(in, state anydiff.Res, n int) (out, newState anydiff.Res) {
-			x := anydiff.Add(transQuery, s.Attentor.InTrans[1].Apply(in, n))
-			return nil, s.Attentor.OutTrans.Apply(x, n)
+			x := anydiff.Add(transQuery, s.Attentor.In2.Apply(in, n))
+			return nil, s.Attentor.Out.Apply(x, n)
 		},
 		MakeStart: func(n int) anydiff.Res {
 			if n != pres.NumPresent() {
