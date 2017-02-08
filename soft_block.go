@@ -226,7 +226,7 @@ func (s *softBlockRes) Vars() anydiff.VarSet {
 func (s *softBlockRes) Propagate(u anyvec.Vector, sg anyrnn.StateGrad,
 	g anydiff.Grad) (anyvec.Vector, anyrnn.StateGrad) {
 	var internalSG anyrnn.StateGrad
-	if s != nil {
+	if sg != nil {
 		sg := sg.(*softBlockStateGrad)
 		u.Add(sg.Query.Vector)
 		internalSG = sg.Internal
