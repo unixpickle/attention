@@ -11,7 +11,7 @@ import (
 
 func TestSeqSoftmax(t *testing.T) {
 	c := anyvec32.DefaultCreator{}
-	inSeq := anyseq.ConstSeqList([][]anyvec.Vector{
+	inSeq := anyseq.ConstSeqList(c, [][]anyvec.Vector{
 		{
 			c.MakeVectorData(c.MakeNumericList([]float64{1})),
 			c.MakeVectorData(c.MakeNumericList([]float64{-2})),
@@ -32,7 +32,7 @@ func TestSeqSoftmax(t *testing.T) {
 		},
 	})
 	actual := seqSoftmax(inSeq)
-	expected := anyseq.ConstSeqList([][]anyvec.Vector{
+	expected := anyseq.ConstSeqList(c, [][]anyvec.Vector{
 		{
 			c.MakeVectorData(c.MakeNumericList([]float64{0.2653879287722419})),
 			c.MakeVectorData(c.MakeNumericList([]float64{0.0132128869537894})),

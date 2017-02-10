@@ -34,7 +34,7 @@ func maxPerSeq(rawOuts anyseq.Seq) anyvec.Vector {
 			return nil, anydiff.NewConst(elemMax)
 		},
 		MakeStart: func(n int) anydiff.Res {
-			c := rawOuts.Output()[0].Packed.Creator()
+			c := rawOuts.Creator()
 			outs := c.MakeVector(n)
 			// TODO: look into using -inf here.
 			outs.AddScaler(c.MakeNumeric(-10000))
