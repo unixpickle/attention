@@ -17,7 +17,7 @@ func seqSoftmax(s anyseq.Seq) anyseq.Seq {
 			sum := anyseq.SumEach(exps)
 			c := sum.Output().Creator()
 			ones := c.MakeVector(sum.Output().Len())
-			ones.AddScaler(c.MakeNumeric(1))
+			ones.AddScalar(c.MakeNumeric(1))
 			scalers := anydiff.Div(anydiff.NewConst(ones), sum)
 			return applyScalers(exps, scalers)
 		})
@@ -37,7 +37,7 @@ func maxPerSeq(rawOuts anyseq.Seq) anyvec.Vector {
 			c := rawOuts.Creator()
 			outs := c.MakeVector(n)
 			// TODO: look into using -inf here.
-			outs.AddScaler(c.MakeNumeric(-10000))
+			outs.AddScalar(c.MakeNumeric(-10000))
 			return anydiff.NewConst(outs)
 		},
 	}
